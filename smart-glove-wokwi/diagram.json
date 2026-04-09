@@ -1,78 +1,283 @@
 {
-  "version": 1,
-  "author": "Smart Glove",
-  "editor": "wokwi",
-  "parts": [
-    {
-      "type": "wokwi-esp8266",
-      "id": "esp",
-      "top": 80,
-      "left": 60,
-      "attrs": {}
-    },
-    {
-      "type": "wokwi-dht22",
-      "id": "dht",
-      "top": -60,
-      "left": -140,
-      "attrs": { "temperature": "36.5", "humidity": "60" }
-    },
-    {
-      "type": "wokwi-mpu6050",
-      "id": "imu",
-      "top": -60,
-      "left": 260,
-      "attrs": {}
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "r1",
-      "top": 260,
-      "left": -140,
-      "attrs": { "value": "220" },
-      "rotate": 90
-    },
-    {
-      "type": "wokwi-led",
-      "id": "led",
-      "top": 300,
-      "left": -140,
-      "attrs": { "color": "red" }
-    },
-    {
-      "type": "wokwi-buzzer",
-      "id": "buzzer",
-      "top": 300,
-      "left": 260,
-      "attrs": {}
-    },
-    {
-      "type": "wokwi-pushbutton",
-      "id": "btn",
-      "top": 300,
-      "left": 60,
-      "attrs": { "color": "green" }
-    }
-  ],
-  "connections": [
-    ["dht:VCC", "esp:3V3", "red", []],
-    ["dht:GND", "esp:GND", "black", []],
-    ["dht:SDA", "esp:D5", "yellow", []],
-
-    ["imu:VCC", "esp:3V3", "red", []],
-    ["imu:GND", "esp:GND", "black", []],
-    ["imu:SCL", "esp:D1", "blue", []],
-    ["imu:SDA", "esp:D2", "green", []],
-
-    ["esp:D0", "r1:2", "orange", []],
-    ["r1:1", "led:A", "orange", []],
-    ["led:C", "esp:GND", "black", []],
-
-    ["esp:D8", "buzzer:1", "purple", []],
-    ["buzzer:2", "esp:GND", "black", []],
-
-    ["btn:1.l", "esp:D7", "white", []],
-    ["btn:2.l", "esp:GND", "black", []]
-  ],
-  "dependencies": {}
+    "version": 1,
+    "author": "Anonymous maker",
+    "editor": "wokwi",
+    "parts": [
+        {
+            "type": "wokwi-breadboard-half",
+            "id": "bb1",
+            "top": -79.8,
+            "left": -189.2,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-esp32-devkit-v1",
+            "id": "esp",
+            "top": 148.7,
+            "left": -62.6,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-mpu6050",
+            "id": "imu1",
+            "top": 195.82,
+            "left": -285.68,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-dht22",
+            "id": "dht1",
+            "top": -57.3,
+            "left": 167.4,
+            "attrs": {}
+        },
+        {
+            "type": "board-ssd1306",
+            "id": "oled1",
+            "top": 175.94,
+            "left": -172.57,
+            "attrs": {
+                "i2cAddress": "0x3c"
+            }
+        },
+        {
+            "type": "wokwi-buzzer",
+            "id": "bz1",
+            "top": 201.6,
+            "left": 105.6,
+            "rotate": 180,
+            "attrs": {
+                "volume": "0.1"
+            }
+        },
+        {
+            "type": "wokwi-led",
+            "id": "led1",
+            "top": 6,
+            "left": 13.4,
+            "attrs": {
+                "color": "red"
+            }
+        },
+        {
+            "type": "wokwi-resistor",
+            "id": "r1",
+            "top": 81.6,
+            "left": 9.05,
+            "rotate": 90,
+            "attrs": {
+                "value": "220"
+            }
+        }
+    ],
+    "connections": [
+        [
+            "esp:TX0",
+            "$serialMonitor:RX",
+            "",
+            []
+        ],
+        [
+            "esp:RX0",
+            "$serialMonitor:TX",
+            "",
+            []
+        ],
+        [
+            "esp:VIN",
+            "bb1:bp.1",
+            "red",
+            [
+                "h-115.2",
+                "v-200.7"
+            ]
+        ],
+        [
+            "esp:GND.1",
+            "bb1:bn.25",
+            "black",
+            [
+                "h0"
+            ]
+        ],
+        [
+            "imu1:VCC",
+            "bb1:bp.2",
+            "red",
+            [
+                "v-76.8",
+                "h67.28"
+            ]
+        ],
+        [
+            "imu1:GND",
+            "bb1:bn.5",
+            "black",
+            [
+                "v-38.4",
+                "h105.68"
+            ]
+        ],
+        [
+            "dht1:VCC",
+            "bb1:bp.25",
+            "red",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "dht1:GND",
+            "bb1:bn.23",
+            "black",
+            [
+                "v134.4",
+                "h-115.2",
+                "v-9.6"
+            ]
+        ],
+        [
+            "dht1:SDA",
+            "esp:D2",
+            "green",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "imu1:SCL",
+            "bb1:14b.g",
+            "green",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "imu1:SDA",
+            "bb1:15b.f",
+            "blue",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "bb1:14b.h",
+            "esp:D5",
+            "green",
+            [
+                "v76.8",
+                "h105.6",
+                "v9.6"
+            ]
+        ],
+        [
+            "bb1:15b.g",
+            "esp:D4",
+            "blue",
+            [
+                "v96",
+                "h86.4",
+                "v124.8"
+            ]
+        ],
+        [
+            "bb1:14b.i",
+            "oled1:SCL",
+            "green",
+            [
+                "v67.2",
+                "h-76.8"
+            ]
+        ],
+        [
+            "oled1:VCC",
+            "bb1:bp.4",
+            "red",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "oled1:GND",
+            "bb1:bn.3",
+            "black",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "bz1:1",
+            "bb1:bn.22",
+            "black",
+            [
+                "v-67.2",
+                "h-76.8"
+            ]
+        ],
+        [
+            "bz1:2",
+            "esp:D14",
+            "red",
+            [
+                "v0",
+                "h-57.2",
+                "v163.2",
+                "h-163.2",
+                "v-86.4"
+            ]
+        ],
+        [
+            "led1:A",
+            "bb1:22b.g",
+            "",
+            [
+                "$bb"
+            ]
+        ],
+        [
+            "led1:C",
+            "bb1:21b.g",
+            "",
+            [
+                "$bb"
+            ]
+        ],
+        [
+            "r1:1",
+            "bb1:22b.h",
+            "",
+            [
+                "$bb"
+            ]
+        ],
+        [
+            "r1:2",
+            "bb1:bn.18",
+            "",
+            [
+                "$bb"
+            ]
+        ],
+        [
+            "esp:D12",
+            "bb1:21b.h",
+            "gold",
+            [
+                "h-9.6",
+                "v-135.1",
+                "h86.4",
+                "v-57.6"
+            ]
+        ],
+        [
+            "bb1:15b.i",
+            "oled1:SDA",
+            "blue",
+            [
+                "v86.4",
+                "h-76.8"
+            ]
+        ]
+    ],
+    "dependencies": {}
 }

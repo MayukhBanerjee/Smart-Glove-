@@ -1,125 +1,182 @@
 // ============================================================
-//  Smart Glove — Serial → WebSocket Bridge
+//  Smart Glove — Serial → WebSocket Bridge (v2 — Production)
 //
-//  Reads JSON lines from Wokwi (via COM port / virtual serial)
-//  and emits processed data over Socket.IO.
+//  Reads JSON lines from Wokwi/ESP32 over a COM port and feeds
+//  them into the same processing pipeline as the simulator.
 //
-//  HOW TO USE:
-//    1. Find your port: list them with `npx @serialport/list`
-//    2. Pass the io instance and port string to startSerialBridge()
-//    3. Data is processed through the SAME pipeline as the simulator
+//  SUPPORTED PORT FORMATS:
+//    Windows : 'COM3', 'COM4', etc.
+//    Linux   : '/dev/ttyUSB0', '/dev/ttyACM0'
+//    Mac     : '/dev/cu.usbserial-XXXX'
 //
-//  WOKWI VIRTUAL SERIAL:
-//    Install Wokwi CLI + VS Code extension.
-//    The virtual COM port appears as shown in Wokwi terminal.
+//  ENVIRONMENT VARIABLES:
+//    SERIAL_PORT=COM3        — port to open (required to enable)
+//    SERIAL_BAUD=115200      — baud rate  (default: 115200)
+//
+//  HOW WOKWI VIRTUAL SERIAL WORKS:
+//    Install Wokwi VS Code extension + run simulation.
+//    A virtual COM port (e.g. COM5) appears in Device Manager.
+//    Use that COM number for SERIAL_PORT.
 // ============================================================
 
-const { ReadlineParser } = require('@serialport/parser-readline');
-const { computeInsights  } = require('./processor');
+const { computeInsights } = require('./processor');
 
 let serialActive = false;
+let _retryTimer  = null;
+let _port        = null;
+
+const RECONNECT_DELAY_MS = 5000; // 5s retry on disconnect
+
+// ── Rolling buffer for 3-sample smoothing ────────────────────
+const rawBuffer  = [];
+const BUFFER_SIZE = 3;
 
 /**
- * Attempt to open a serial port and stream data.
- * Fails gracefully if port not found (falls back to simulator).
+ * Attempt to open a serial port and stream sensor data.
+ * Automatically retries on disconnect.
+ * Falls back to simulator if port unavailable.
  *
  * @param {import('socket.io').Server} io
- * @param {string} portPath  e.g. 'COM3' on Windows, '/dev/ttyUSB0' on Linux
- * @param {number} baudRate  default 115200
+ * @param {string}  portPath  e.g. 'COM3'
+ * @param {number}  baudRate  default 115200
+ * @returns {Promise<boolean>}
  */
 async function startSerialBridge(io, portPath, baudRate = 115200) {
-  let SerialPort;
+  // ── 1. Try to load the 'serialport' package ───────────────
+  let SerialPort, ReadlineParser;
   try {
-    // Dynamic import so the backend doesn't crash if serialport isn't installed
-    const sp = require('@serialport/stream');
-    const { autoDetect } = require('@serialport/bindings-cpp');
-    SerialPort = sp.SerialPortStream;
-    SerialPort.Binding = autoDetect();
+    ({ SerialPort }     = require('serialport'));
+    ({ ReadlineParser } = require('@serialport/parser-readline'));
   } catch (err) {
-    console.warn('[Serial] ⚠️  serialport package not installed — serial bridge disabled.');
-    console.warn('[Serial]    Run: npm install @serialport/stream @serialport/bindings-cpp @serialport/parser-readline');
+    console.warn('[Serial] ⚠️  "serialport" package not installed.');
+    console.warn('[Serial]    Run: npm install serialport @serialport/parser-readline');
+    console.warn('[Serial]    Falling back to built-in simulator.');
     return false;
   }
 
+  // ── 2. List available ports (diagnostic) ─────────────────
   try {
-    const port   = new SerialPort({ path: portPath, baudRate, autoOpen: false });
+    const ports = await SerialPort.list();
+    if (ports.length === 0) {
+      console.warn('[Serial] ⚠️  No serial ports detected on this machine.');
+    } else {
+      console.log('[Serial] 🔍 Available ports:');
+      ports.forEach(p => console.log(`[Serial]    ${p.path}  (${p.manufacturer || 'unknown'})`));
+    }
+  } catch (_) { /* ignore list errors */ }
+
+  // ── 3. Try to open the requested port ────────────────────
+  return _openPort(io, portPath, baudRate, SerialPort, ReadlineParser);
+}
+
+function _openPort(io, portPath, baudRate, SerialPort, ReadlineParser) {
+  return new Promise((resolve) => {
+    console.log(`[Serial] 🔌 Connecting to ${portPath} @ ${baudRate} baud …`);
+
+    let port;
+    try {
+      port = new SerialPort({ path: portPath, baudRate, autoOpen: false });
+    } catch (err) {
+      console.error(`[Serial] ❌ Cannot create port ${portPath}: ${err.message}`);
+      resolve(false);
+      return;
+    }
+
+    _port = port;
     const parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+
+    // Incomplete-line accumulation buffer (handles chunked serial reads)
+    let lineAccum = '';
 
     port.open((err) => {
       if (err) {
         console.error(`[Serial] ❌ Could not open ${portPath}: ${err.message}`);
-        console.warn('[Serial]    Falling back to built-in simulator.');
+        console.warn('[Serial]    → Falling back to simulator. Will retry in 5s.');
+        _scheduleRetry(io, portPath, baudRate, SerialPort, ReadlineParser);
+        resolve(false);
         return;
       }
-      console.log(`[Serial] ✅ Connected to ${portPath} @ ${baudRate} baud`);
+
+      console.log(`[Serial] ✅ Connected — ${portPath} @ ${baudRate} baud`);
+      console.log('[Serial]    Simulator has been DISABLED. Reading live data.');
+      serialActive = true;
+      resolve(true);
+    });
+
+    // ── Data handler ─────────────────────────────────────
+    parser.on('data', (rawLine) => {
+      const line = rawLine.trim();
+      if (!line) return;
+
+      // Only process lines that look like our JSON
+      if (!line.startsWith('{')) {
+        // Echo non-JSON lines for debugging (firmware print statements etc.)
+        console.debug(`[Serial][ESP32] ${line}`);
+        return;
+      }
+
+      let raw;
+      try {
+        raw = JSON.parse(line);
+      } catch (_) {
+        console.warn(`[Serial] ⚠️  JSON parse error: ${line.slice(0, 80)}`);
+        return;
+      }
+
+      // Validate all required fields are numbers
+      const FIELDS = ['reps', 'tremor', 'jerk', 'temperature', 'imu'];
+      const missing = FIELDS.filter(f => typeof raw[f] !== 'number');
+      if (missing.length > 0) {
+        console.warn(`[Serial] ⚠️  Missing fields [${missing.join(', ')}]: ${line.slice(0, 80)}`);
+        return;
+      }
+
+      // Rolling smooth over last BUFFER_SIZE samples
+      rawBuffer.push(raw);
+      if (rawBuffer.length > BUFFER_SIZE) rawBuffer.shift();
+      const smoothed  = _smooth(rawBuffer);
+
+      // Push through the same pipeline as simulator
+      const processed = computeInsights(smoothed);
+      io.emit('data', processed);
+
+      // Keep serialActive alive
       serialActive = true;
     });
 
-    // Rolling buffer for data smoothing
-    const buffer = [];
-    const BUFFER_SIZE = 3;
-
-    parser.on('data', (line) => {
-      line = line.trim();
-      if (!line.startsWith('{')) return; // skip non-JSON lines (debug prints, etc.)
-
-      try {
-        const raw = JSON.parse(line);
-
-        // Validate required fields
-        if (
-          typeof raw.reps        !== 'number' ||
-          typeof raw.tremor      !== 'number' ||
-          typeof raw.jerk        !== 'number' ||
-          typeof raw.temperature !== 'number' ||
-          typeof raw.imu         !== 'number'
-        ) {
-          console.warn('[Serial] ⚠️  Malformed JSON (missing fields):', line);
-          return;
-        }
-
-        // Data smoothing: average over rolling buffer
-        buffer.push(raw);
-        if (buffer.length > BUFFER_SIZE) buffer.shift();
-
-        const smoothed = smoothData(buffer);
-        const processed = computeInsights(smoothed);
-
-        io.emit('data', processed);
-        serialActive = true;
-
-      } catch (parseErr) {
-        console.warn('[Serial] ⚠️  JSON parse error:', line);
-      }
-    });
-
+    // ── Disconnect / Error handlers ───────────────────────
     port.on('close', () => {
-      console.warn('[Serial] Port closed — falling back to simulator.');
+      console.warn('[Serial] ⚠️  Port closed — reverting to simulator.');
       serialActive = false;
+      _scheduleRetry(io, portPath, baudRate, SerialPort, ReadlineParser);
     });
 
     port.on('error', (err) => {
-      console.error('[Serial] Port error:', err.message);
+      console.error(`[Serial] Port error: ${err.message}`);
       serialActive = false;
     });
+  });
+}
 
-    return true;
-
-  } catch (err) {
-    console.error('[Serial] Fatal error:', err.message);
-    return false;
-  }
+/** Schedule a reconnection attempt without blocking the event loop */
+function _scheduleRetry(io, portPath, baudRate, SerialPort, ReadlineParser) {
+  if (_retryTimer) return; // already scheduled
+  _retryTimer = setTimeout(async () => {
+    _retryTimer = null;
+    console.log(`[Serial] 🔄 Retrying ${portPath} …`);
+    await _openPort(io, portPath, baudRate, SerialPort, ReadlineParser);
+  }, RECONNECT_DELAY_MS);
 }
 
 /**
- * Average multiple sensor readings for smoother output.
- * @param {Array<object>} buf
+ * Average a buffer of raw readings (reps takes latest value).
+ * @param {object[]} buf
  * @returns {object}
  */
-function smoothData(buf) {
+function _smooth(buf) {
   const n = buf.length;
   return {
-    reps:        buf[buf.length - 1].reps,  // reps is cumulative, take latest
+    reps:        buf[n - 1].reps,  // cumulative — always latest
     tremor:      buf.reduce((s, d) => s + d.tremor,      0) / n,
     jerk:        buf.reduce((s, d) => s + d.jerk,        0) / n,
     temperature: buf.reduce((s, d) => s + d.temperature, 0) / n,
@@ -127,8 +184,19 @@ function smoothData(buf) {
   };
 }
 
+/** Returns true if serial port is actively providing data */
 function isSerialActive() {
   return serialActive;
 }
 
-module.exports = { startSerialBridge, isSerialActive };
+/** List available COM ports — useful for diagnostics */
+async function listPorts() {
+  try {
+    const { SerialPort } = require('serialport');
+    return await SerialPort.list();
+  } catch (_) {
+    return [];
+  }
+}
+
+module.exports = { startSerialBridge, isSerialActive, listPorts };
