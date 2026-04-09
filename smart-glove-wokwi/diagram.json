@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "author": "Smart Glove",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp8266",
+      "id": "esp",
+      "top": 80,
+      "left": 60,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht",
+      "top": -60,
+      "left": -140,
+      "attrs": { "temperature": "36.5", "humidity": "60" }
+    },
+    {
+      "type": "wokwi-mpu6050",
+      "id": "imu",
+      "top": -60,
+      "left": 260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 260,
+      "left": -140,
+      "attrs": { "value": "220" },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led",
+      "top": 300,
+      "left": -140,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": 300,
+      "left": 260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn",
+      "top": 300,
+      "left": 60,
+      "attrs": { "color": "green" }
+    }
+  ],
+  "connections": [
+    ["dht:VCC", "esp:3V3", "red", []],
+    ["dht:GND", "esp:GND", "black", []],
+    ["dht:SDA", "esp:D5", "yellow", []],
+
+    ["imu:VCC", "esp:3V3", "red", []],
+    ["imu:GND", "esp:GND", "black", []],
+    ["imu:SCL", "esp:D1", "blue", []],
+    ["imu:SDA", "esp:D2", "green", []],
+
+    ["esp:D0", "r1:2", "orange", []],
+    ["r1:1", "led:A", "orange", []],
+    ["led:C", "esp:GND", "black", []],
+
+    ["esp:D8", "buzzer:1", "purple", []],
+    ["buzzer:2", "esp:GND", "black", []],
+
+    ["btn:1.l", "esp:D7", "white", []],
+    ["btn:2.l", "esp:GND", "black", []]
+  ],
+  "dependencies": {}
+}

@@ -1,0 +1,7 @@
+[wokwi]
+version = 1
+elf = "build/sketch.ino.elf"
+firmware = "build/sketch.ino.hex"
+
+[chip:esp8266]
+firmware = "build/sketch.ino.bin"

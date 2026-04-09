@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { StatusBar } from '@/components/dashboard/status-bar';
 import { KPIGrid } from '@/components/dashboard/kpi-grid';
 import { DataVisualization } from '@/components/dashboard/data-visualization';
@@ -14,13 +15,83 @@ export default function Home() {
   const [sessionTime, setSessionTime] = useState(0);
 
   useEffect(() => {
-    // Initialize with mock data
+    // Initialize with mock data to setup initial chart histories
     setData(generateMockData());
 
-    // Simulate live updates
-    const interval = setInterval(() => {
-      setData(generateMockData());
-    }, 1000);
+    // Connect to Backend WebSocket
+    const socket = io('http://localhost:4000');
+    
+    socket.on('data', (backendData: any) => {
+      setData(prevData => {
+        if (!prevData || !backendData) return prevData;
+
+        // Maintain histories (last 60 elements)
+        const timeNow = prevData.gripForceHistory.length > 0 
+          ? prevData.gripForceHistory[prevData.gripForceHistory.length - 1].time + 1 
+          : 0;
+
+        const newGripHistory = [...prevData.gripForceHistory, {
+          time: timeNow,
+          value: backendData.grip?.left || 50
+        }].slice(-60);
+
+        const newImuMotion = [...prevData.imuMotion, {
+          time: timeNow,
+          x: (backendData.form?.deviation || 0) * 5,
+          y: Math.random() * 20,
+          z: 50 + (backendData.form?.deviation || 0) * 2
+        }].slice(-60);
+
+        const newFatigueHistory = [...prevData.fatigueHistory, {
+          time: timeNow,
+          value: backendData.fatigue?.score || 0
+        }].slice(-60);
+
+        return {
+          injuryRisk: backendData.injury_risk,
+          connectionStatus: 'LIVE',
+          gripIntelligence: {
+            left: backendData.grip.left,
+            right: backendData.grip.right,
+            symmetryScore: backendData.grip.balance_score
+          },
+          formQuality: {
+            score: backendData.form.score,
+            deviation: backendData.form.deviation
+          },
+          fatigueIndex: backendData.fatigue.level,
+          stabilityScore: backendData.stability,
+          repIntelligence: {
+            count: backendData.reps.count,
+            tempo: backendData.reps.tempo
+          },
+          bodyTemperature: backendData.temperature,
+          gripForceHistory: newGripHistory,
+          imuMotion: newImuMotion,
+          fatigueHistory: newFatigueHistory,
+          alerts: backendData.alerts.map((a: any, i: number) => ({
+            id: `alert-${backendData.timestamp}-${i}`,
+            message: a.message,
+            severity: a.type,
+            timestamp: backendData.timestamp - (i * 1000)
+          })),
+          riskMetrics: {
+            gripBalance: backendData.grip.balance_score,
+            formQuality: backendData.form.score,
+            fatigue: backendData.fatigue.score,
+            stability: backendData.stability,
+            overall: Math.round((backendData.grip.balance_score + backendData.form.score + (100 - backendData.fatigue.score) + backendData.stability) / 4)
+          },
+          recommendations: backendData.recommendations.length > 0 
+            ? backendData.recommendations 
+            : prevData.recommendations
+        };
+      });
+    });
+
+    socket.on('disconnect', () => {
+      setData(prev => prev ? { ...prev, connectionStatus: 'DISCONNECTED' } : null);
+    });
 
     // Update session timer
     const timer = setInterval(() => {
@@ -28,7 +99,7 @@ export default function Home() {
     }, 1000);
 
     return () => {
-      clearInterval(interval);
+      socket.disconnect();
       clearInterval(timer);
     };
   }, []);
